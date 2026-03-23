@@ -1,0 +1,182 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum SubscriptionType {
+  BASIC
+  PREMIUM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+}
+
+model User {
+  id                  String             @id @default(uuid())
+  fullName            String
+  username            String             @unique
+  email               String             @unique
+  password            String
+  profileImage        String?
+  role                UserRole           @default(USER)
+  bio                 String?
+  subscriptionType    SubscriptionType   @default(BASIC)
+  subscriptionStatus  SubscriptionStatus @default(ACTIVE)
+  subscriptionEndDate DateTime?
+  isPremium           Boolean            @default(false)
+  coins               Int                @default(0)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  stories             Story[]
+  followers           Follow[]           @relation("followTarget")
+  following           Follow[]           @relation("followSource")
+  transactions        Transaction[]
+  donationsGiven      Donation[]         @relation("DonationsGiven")
+  donationsReceived   Donation[]         @relation("DonationsReceived")
+}
+
+model Follow {
+  id          String @id @default(uuid())
+  follower    User   @relation("followSource", fields: [followerId], references: [id])
+  followerId  String
+  followee    User   @relation("followTarget", fields: [followeeId], references: [id])
+  followeeId  String
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followeeId])
+}
+
+model Story {
+  id            String      @id @default(uuid())
+  title         String
+  description   String?
+  coverImage    String?
+  author        User        @relation(fields: [authorId], references: [id])
+  authorId      String
+  category      Category?   @relation(fields: [categoryId], references: [id])
+  categoryId    String?
+  tags          StoryTag[]
+  chapterCount  Int         @default(0)
+  status        String      @default("draft")
+  isAdultContent Boolean    @default(false)
+  totalLikes    Int         @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  chapters      Chapter[]
+  favorites     Favorite[]
+}
+
+model Chapter {
+  id          String   @id @default(uuid())
+  story       Story    @relation(fields: [storyId], references: [id])
+  storyId     String
+  chapterNumber Int
+  title       String
+  content     String
+  images      String[] @default([])
+  videos      String[] @default([])
+  status      String   @default("draft")
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([storyId, chapterNumber])
+}
+
+model Category {
+  id    String  @id @default(uuid())
+  name  String  @unique
+  stories Story[]
+}
+
+model Tag {
+  id     String    @id @default(uuid())
+  name   String    @unique
+  stories StoryTag[]
+}
+
+model StoryTag {
+  story  Story @relation(fields: [storyId], references: [id])
+  storyId String
+  tag    Tag   @relation(fields: [tagId], references: [id])
+  tagId  String
+
+  @@id([storyId, tagId])
+}
+
+model Interaction {
+  id             String   @id @default(uuid())
+  contentId      String
+  chapter        Chapter  @relation(fields: [contentId], references: [id])
+  user           User     @relation(fields: [userId], references: [id])
+  userId         String
+  interactionType String
+  text           String?
+  createdAt      DateTime @default(now())
+}
+
+model Favorite {
+  id      String @id @default(uuid())
+  user    User   @relation(fields: [userId], references: [id])
+  userId  String
+  story   Story  @relation(fields: [storyId], references: [id])
+  storyId String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, storyId])
+}
+
+model Report {
+  id        String @id @default(uuid())
+  user      User   @relation(fields: [userId], references: [id])
+  userId    String
+  contentId String
+  onModel   String
+  reason    String
+  details   String?
+  status    String @default("pending")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Transaction {
+  id                    String   @id @default(uuid())
+  user                  User     @relation(fields: [userId], references: [id])
+  userId                String
+  type                  String
+  amount                Float
+  currency              String
+  status                String
+  paymentMethod         String?
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId String?
+  stripeSubscriptionId  String?
+  stripeCustomerId      String?
+  metadata              Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Donation {
+  id          String  @id @default(uuid())
+  donator     User    @relation("DonationsGiven", fields: [donatorId], references: [id])
+  donatorId   String
+  recipient   User    @relation("DonationsReceived", fields: [recipientId], references: [id])
+  recipientId String
+  story       Story   @relation(fields: [storyId], references: [id])
+  storyId     String
+  amount      Int
+  message     String?
+  createdAt   DateTime @default(now())
+}
