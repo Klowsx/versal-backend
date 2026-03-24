@@ -27,10 +27,12 @@ const DonationSchema = new mongoose.Schema(
       trim: true,
       maxLength: 280,
     },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 const Donation = mongoose.model("Donation", DonationSchema);

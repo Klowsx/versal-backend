@@ -13,19 +13,29 @@ const StorySchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true },
     description: { type: String, trim: true },
     coverImage: { type: String, default: null },
-    author: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    author: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
     category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
     tags: [{ type: mongoose.Schema.Types.ObjectId, ref: "Tag" }],
     characters: [{ name: String, description: String }],
     language: { type: String, default: "Español" },
-    status: { type: String, enum: ["draft", "published", "archived"], default: "draft" },
+    status: {
+      type: String,
+      enum: ["draft", "published", "archived"],
+      default: "draft",
+    },
     chapterCount: { type: Number, default: 0 },
     isAdultContent: { type: Boolean, default: false },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
     totalLikes: { type: Number, default: 0 },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 const Category = mongoose.model("Category", CategorySchema);
@@ -68,7 +78,7 @@ async function seedDefaults() {
             update: { $setOnInsert: { name } },
             upsert: true,
           },
-        }))
+        })),
       );
       await Tag.bulkWrite(
         defaultTags.map((name) => ({
@@ -77,7 +87,7 @@ async function seedDefaults() {
             update: { $setOnInsert: { name } },
             upsert: true,
           },
-        }))
+        })),
       );
       console.log("Datos por defecto sembrados.");
     }

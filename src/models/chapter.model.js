@@ -2,7 +2,11 @@ const mongoose = require("mongoose");
 
 const ChapterSchema = new mongoose.Schema(
   {
-    story: { type: mongoose.Schema.Types.ObjectId, ref: "Story", required: true },
+    story: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Story",
+      required: true,
+    },
     chapterNumber: { type: Number, required: true },
     title: { type: String, required: true, trim: true },
     content: { type: String, required: true },
@@ -10,14 +14,20 @@ const ChapterSchema = new mongoose.Schema(
     videos: [{ type: String }],
     status: { type: String, enum: ["draft", "published"], default: "draft" },
     publishedAt: { type: Date, default: null },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 ChapterSchema.pre("save", function (next) {
-  if (this.isModified("status") && this.status === "published" && !this.publishedAt) {
+  if (
+    this.isModified("status") &&
+    this.status === "published" &&
+    !this.publishedAt
+  ) {
     this.publishedAt = Date.now();
   }
   next();

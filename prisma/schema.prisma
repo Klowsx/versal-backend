@@ -22,6 +22,64 @@ enum SubscriptionStatus {
   EXPIRED
 }
 
+enum InteractionType {
+  LIKE
+  COMMENT
+}
+
+enum StoryStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ChapterStatus { 
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum TransactionType {
+  SUBSCRIPTION
+  DONATION
+  TOPUP
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  REJECTED
+  RESOLVED
+}
+
+enum ReportReason{
+  SPAM
+  HARASSMENT
+  COPYRIGHT
+  INAPPROPRIATE_CONTENT
+  VIOLENCE
+  OTHER
+}
+
+enum ReportTarget {
+  STORY
+  CHAPTER
+  COMMENT
+  USER
+}
+
 model User {
   id                  String             @id @default(uuid())
   fullName            String
@@ -31,10 +89,10 @@ model User {
   profileImage        String?
   role                UserRole           @default(USER)
   bio                 String?
+  isDeleted           Boolean            @default(false)
+  deletedAt           DateTime?
   subscriptionType    SubscriptionType   @default(BASIC)
-  subscriptionStatus  SubscriptionStatus @default(ACTIVE)
   subscriptionEndDate DateTime?
-  isPremium           Boolean            @default(false)
   coins               Int                @default(0)
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
@@ -44,17 +102,37 @@ model User {
   transactions        Transaction[]
   donationsGiven      Donation[]         @relation("DonationsGiven")
   donationsReceived   Donation[]         @relation("DonationsReceived")
+  comments            Comment[]
+  commentLikes        CommentLike[]
+  storyLikes          StoryLike[]
+  notifications       Notification[]
+  notificationPreferences NotificationPreference[]
+}
+
+model StoryLike {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  storyId   String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, storyId])
+  @@index([userId])
+  @@index([storyId])
 }
 
 model Follow {
   id          String @id @default(uuid())
-  follower    User   @relation("followSource", fields: [followerId], references: [id])
+  follower    User   @relation("followSource", fields: [followerId], references: [id], onDelete: Cascade)
   followerId  String
-  followee    User   @relation("followTarget", fields: [followeeId], references: [id])
+  followee    User   @relation("followTarget", fields: [followeeId], references: [id], onDelete: Cascade)
   followeeId  String
   createdAt   DateTime @default(now())
 
   @@unique([followerId, followeeId])
+  @@index([followeeId])
+  @@index([followerId])
 }
 
 model Story {
@@ -62,36 +140,66 @@ model Story {
   title         String
   description   String?
   coverImage    String?
-  author        User        @relation(fields: [authorId], references: [id])
+  author        User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
   authorId      String
   category      Category?   @relation(fields: [categoryId], references: [id])
   categoryId    String?
   tags          StoryTag[]
   chapterCount  Int         @default(0)
-  status        String      @default("draft")
+  status        StoryStatus @default(DRAFT)
   isAdultContent Boolean    @default(false)
+  isDeleted     Boolean    @default(false)
+  deletedAt     DateTime?
   totalLikes    Int         @default(0)
+  viewCount     Int         @default(0)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   chapters      Chapter[]
   favorites     Favorite[]
+  likes         StoryLike[]
+  bookmarks     Bookmark[]
+  views         View[]
+
+  @@index([authorId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model Chapter {
-  id          String   @id @default(uuid())
-  story       Story    @relation(fields: [storyId], references: [id])
-  storyId     String
+  id            String   @id @default(uuid())
+  story         Story    @relation(fields: [storyId], references: [id])
+  storyId       String
   chapterNumber Int
-  title       String
-  content     String
-  images      String[] @default([])
-  videos      String[] @default([])
-  status      String   @default("draft")
-  publishedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
+  title         String
+  content       String
+  status        ChapterStatus @default(DRAFT)   // op: enum
+  publishedAt   DateTime?
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+  viewCount     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  medias        ChapterMedia[]
+  comments      Comment[]
+  views         View[]
+  commentCount Int @default(0)
   @@unique([storyId, chapterNumber])
+  
+  @@index([storyId])
+  @@index([status])
+}
+
+model ChapterMedia {
+  id        String   @id @default(uuid())
+  chapter   Chapter  @relation(fields: [chapterId], references: [id])
+  chapterId String
+  type      MediaType
+  url       String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([chapterId])
 }
 
 model Category {
@@ -113,70 +221,195 @@ model StoryTag {
   tagId  String
 
   @@id([storyId, tagId])
+
+  @@index([tagId])
 }
 
 model Interaction {
   id             String   @id @default(uuid())
-  contentId      String
-  chapter        Chapter  @relation(fields: [contentId], references: [id])
-  user           User     @relation(fields: [userId], references: [id])
+  chapterId      String
+  chapter        Chapter  @relation(fields: [chapterId], references: [id])
   userId         String
-  interactionType String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interactionType InteractionType
   text           String?
   createdAt      DateTime @default(now())
+  @@index([chapterId])
+  @@index([userId])
+}
+
+model Comment {
+  id          String   @id @default(uuid())
+
+  content     String
+
+  userId      String
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  chapterId   String
+  chapter     Chapter @relation(fields: [chapterId], references: [id])
+
+  parentId    String?
+  parent      Comment? @relation("CommentReplies", fields: [parentId], references: [id])
+  replies     Comment[] @relation("CommentReplies")
+
+  likeCount   Int @default(0)
+
+  isEdited    Boolean @default(false)
+  isDeleted   Boolean @default(false)
+
+  deletedAt   DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  likes CommentLike[]
+
+  @@index([chapterId])
+  @@index([userId])
+  @@index([parentId])
+}
+
+model CommentLike {
+  id        String @id @default(uuid())
+
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  commentId String
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, commentId])
+
+  @@index([userId])
+  @@index([commentId])
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  type        String
+  message     String
+  sourceId    String?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+model NotificationPreference {
+  id          String   @id @default(uuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  likes       Boolean  @default(true)
+  comments    Boolean  @default(true)
+  follows     Boolean  @default(true)
+  donations   Boolean  @default(true)
+  favorites   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId])
+}
+
+model View {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storyId     String?
+  story       Story?   @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  chapterId   String?
+  chapter     Chapter? @relation(fields: [chapterId], references: [id])
+  sessionId   String
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([storyId, createdAt])
+  @@index([chapterId, createdAt])
+}
+
+model Bookmark {
+  id          String   @id @default(uuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  story       Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  storyId     String
+  note        String?
+  category    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, storyId])
+  @@index([userId])
+  @@index([storyId])
 }
 
 model Favorite {
   id      String @id @default(uuid())
-  user    User   @relation(fields: [userId], references: [id])
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId  String
-  story   Story  @relation(fields: [storyId], references: [id])
+  story   Story  @relation(fields: [storyId], references: [id], onDelete: Cascade)
   storyId String
   createdAt DateTime @default(now())
 
   @@unique([userId, storyId])
+
+  @@index([userId])
+  @@index([storyId])
 }
 
 model Report {
   id        String @id @default(uuid())
-  user      User   @relation(fields: [userId], references: [id])
   userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   contentId String
-  onModel   String
-  reason    String
+  target   ReportTarget
+  reason    ReportReason
   details   String?
-  status    String @default("pending")
+  status    ReportStatus @default(PENDING)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([contentId])
+  @@index([status])
 }
 
 model Transaction {
-  id                    String   @id @default(uuid())
-  user                  User     @relation(fields: [userId], references: [id])
-  userId                String
-  type                  String
-  amount                Float
-  currency              String
-  status                String
-  paymentMethod         String?
-  stripeCheckoutSessionId String?
-  stripePaymentIntentId String?
-  stripeSubscriptionId  String?
-  stripeCustomerId      String?
-  metadata              Json?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      TransactionType
+  status    TransactionStatus
+  amount    Float
+  currency  String
+  metadata  Json? @db.JsonB
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([type])
 }
 
 model Donation {
   id          String  @id @default(uuid())
-  donator     User    @relation("DonationsGiven", fields: [donatorId], references: [id])
+  donator     User    @relation("DonationsGiven", fields: [donatorId], references: [id], onDelete: Cascade)
   donatorId   String
-  recipient   User    @relation("DonationsReceived", fields: [recipientId], references: [id])
+  recipient   User    @relation("DonationsReceived", fields: [recipientId], references: [id], onDelete: Cascade)
   recipientId String
   story       Story   @relation(fields: [storyId], references: [id])
   storyId     String
   amount      Int
   message     String?
   createdAt   DateTime @default(now())
+
+  @@index([donatorId])
+  @@index([recipientId])
+  @@index([storyId])
 }

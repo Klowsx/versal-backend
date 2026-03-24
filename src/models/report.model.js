@@ -43,10 +43,12 @@ const ReportSchema = new mongoose.Schema(
       enum: ["pending", "in_review", "resolved", "dismissed"],
       default: "pending",
     },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 ReportSchema.index({ userId: 1, contentId: 1 }, { unique: true });

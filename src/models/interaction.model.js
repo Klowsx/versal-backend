@@ -23,10 +23,12 @@ const interactionSchema = new mongoose.Schema(
         return this.interactionType === "comment";
       },
     },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 interactionSchema.index(
@@ -34,7 +36,7 @@ interactionSchema.index(
   {
     unique: true,
     partialFilterExpression: { interactionType: "like" },
-  }
+  },
 );
 
 module.exports = mongoose.model("Interaction", interactionSchema);

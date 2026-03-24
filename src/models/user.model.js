@@ -1,4 +1,3 @@
-
 const mongoose = require("mongoose");
 
 const subscriptionSchema = new mongoose.Schema({
@@ -24,14 +23,30 @@ const userSchema = new mongoose.Schema({
   followers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 
-  stripeCustomerId: { type: String, unique: false, sparse: true, default: null },
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date, default: null },
+
+  stripeCustomerId: {
+    type: String,
+    unique: false,
+    sparse: true,
+    default: null,
+  },
   isPremium: { type: Boolean, default: false },
-  premiumSubscriptionId: { type: String, unique: false, sparse: true, default: null },
-  subscriptionPlanId: { type: String, unique: false, sparse: true, default: null },
+  premiumSubscriptionId: {
+    type: String,
+    unique: false,
+    sparse: true,
+    default: null,
+  },
+  subscriptionPlanId: {
+    type: String,
+    unique: false,
+    sparse: true,
+    default: null,
+  },
   coins: { type: Number, default: 0 },
 });
-
-
 
 const UserModel = mongoose.model("User", userSchema);
 module.exports = UserModel;
