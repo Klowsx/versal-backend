@@ -1,296 +1,377 @@
-const User = require('../../models/user.model')
-const bcrypt = require('bcrypt')
+const prisma = require("../../config/prisma");
+const bcrypt = require("bcrypt");
 
 // Validación de contraseña
 function isValidPassword(password) {
-  const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[^a-zA-Z\d]).{8,}$/
-  return regex.test(password)
+  const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[^a-zA-Z\d]).{8,}$/;
+  return regex.test(password);
 }
 
 // Registro de usuario
 async function registerUser({ email, password, username, fullName }) {
-  console.log('Datos de registro en service:', { email, username, fullName })
   if (!isValidPassword(password)) {
     return {
       error:
-        'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un carácter especial.'
-    }
+        "La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un carácter especial.",
+    };
   }
 
-  const existing = await User.findOne({ email })
+  const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     if (existing.isDeleted) {
       return {
         error:
-          'El email ya estaba asociado a una cuenta eliminada. Ponte en contacto con soporte si quieres recuperarla.'
-      }
+          "El email ya estaba asociado a una cuenta eliminada. Ponte en contacto con soporte si quieres recuperarla.",
+      };
     }
-    return { error: 'El email ya está en uso' }
+    return { error: "El email ya está en uso" };
   }
 
-  const hash = await bcrypt.hash(password, 10)
-  const user = await User.create({
-    email,
-    password: hash,
-    username,
-    fullName,
-    isDeleted: false,
-    deletedAt: null
-  })
+  const hash = await bcrypt.hash(password, 10);
+  const user = await prisma.user.create({
+    data: {
+      email,
+      password: hash,
+      username,
+      fullName,
+      isDeleted: false,
+      deletedAt: null,
+    },
+  });
 
-  return { user }
+  const { password: _password, ...userSafe } = user;
+  return { user: userSafe };
+}
+
+async function findOrCreateOAuthUser({
+  email,
+  fullName,
+  profileImage,
+  provider,
+  oauthId,
+}) {
+  let user = await prisma.user.findUnique({ where: { email } });
+  if (user) {
+    if (user.isDeleted) {
+      return { error: "La cuenta está eliminada." };
+    }
+    // Si el usuario ya existe con correo, no forzamos provider, pero guardamos ID si falta
+    if (!user.oauthProvider || user.oauthProvider !== provider) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          oauthProvider: provider,
+          oauthId,
+          profileImage: profileImage || user.profileImage,
+          fullName: fullName || user.fullName,
+        },
+      });
+    }
+    const { password: _password2, ...safe } = user;
+    return { user: safe };
+  }
+
+  const usernameBase = email.split("@")[0];
+  let uniqueUsername = usernameBase;
+  let i = 1;
+  while (
+    await prisma.user.findUnique({ where: { username: uniqueUsername } })
+  ) {
+    uniqueUsername = `${usernameBase}${i++}`;
+  }
+
+  user = await prisma.user.create({
+    data: {
+      email,
+      username: uniqueUsername,
+      fullName: fullName || "",
+      profileImage: profileImage || null,
+      password: "",
+      oauthProvider: provider,
+      oauthId,
+      isDeleted: false,
+    },
+  });
+
+  const { password: _password3, ...userSafe } = user;
+  return { user: userSafe };
 }
 
 // Login de usuario
 async function loginUser({ email, password }) {
   try {
-    const user = await User.findOne({ email })
+    const user = await prisma.user.findUnique({ where: { email } });
     if (!user || user.isDeleted) {
-      return { error: 'Credenciales inválidas.' }
+      return { error: "Credenciales inválidas." };
     }
 
-    const isMatch = await bcrypt.compare(password, user.password)
+    const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return { error: 'Credenciales inválidas.' }
+      return { error: "Credenciales inválidas." };
     }
 
-    const userObject = user.toObject()
-    delete userObject.password
-
-    return { user: userObject }
+    const { password: _password, ...userSafe } = user;
+    return { user: userSafe };
   } catch (error) {
-    console.error('Error al iniciar sesión:', error)
-    return { error: 'Error interno del servidor al iniciar sesión.' }
+    console.error("Error al iniciar sesión:", error);
+    return { error: "Error interno del servidor al iniciar sesión." };
   }
 }
 
 // Obtener perfil
 async function getUserById({ userId, includeDeleted = false }) {
-  const query = User.findById(userId)
-    .select('-password')
-    .select(
-      'fullName username email profileImage role bio subscription following followers blockedUsers coins isDeleted deletedAt'
-    )
-    .lean()
-
-  if (!includeDeleted) {
-    query.where({ isDeleted: false })
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || (!includeDeleted && user.isDeleted)) {
+    throw new Error("Usuario no encontrado");
   }
 
-  const user = await query
-
-  if (!user) throw new Error('Usuario no encontrado')
-  console.log('Usuario encontrado:', user)
-  return user
+  const { password: _password, ...userSafe } = user;
+  return userSafe;
 }
 
 // Obtener usuario por email
 async function getUserByEmail(email, includeDeleted = false) {
-  const query = User.findOne({ email })
-  if (!includeDeleted) {
-    query.where({ isDeleted: false })
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || (!includeDeleted && user.isDeleted)) {
+    return null;
   }
-  return await query
+
+  const { password: _password, ...userSafe } = user;
+  return userSafe;
 }
 
 // Editar perfil
 async function updateUser({ userId, data }) {
-  const updatedUser = await User.findByIdAndUpdate(
-    userId,
-    { $set: data },
-    { new: true }
-  ).select('-password')
-  return updatedUser
+  if (data.password) {
+    delete data.password;
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: { id: userId },
+    data,
+    select: {
+      password: false,
+      id: true,
+      fullName: true,
+      username: true,
+      email: true,
+      profileImage: true,
+      role: true,
+      bio: true,
+      subscriptionType: true,
+      subscriptionEndDate: true,
+      coins: true,
+      isDeleted: true,
+      deletedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  return updatedUser;
 }
 
 // Cambiar contraseña
 async function changePassword({ userId, oldPassword, newPassword }) {
   if (!isValidPassword(newPassword)) {
-    return { error: 'La nueva contraseña no cumple con los requisitos.' }
+    return { error: "La nueva contraseña no cumple con los requisitos." };
   }
 
-  const user = await User.findById(userId)
-  if (!user) return { error: 'Usuario no encontrado' }
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return { error: "Usuario no encontrado" };
 
-  const isValid = await bcrypt.compare(oldPassword, user.password)
-  if (!isValid) return { error: 'Contraseña antigua incorrecta' }
+  const isValid = await bcrypt.compare(oldPassword, user.password);
+  if (!isValid) return { error: "Contraseña antigua incorrecta" };
 
-  user.password = await bcrypt.hash(newPassword, 10)
-  await user.save()
+  const hash = await bcrypt.hash(newPassword, 10);
+  await prisma.user.update({ where: { id: userId }, data: { password: hash } });
 
-  return { message: 'Contraseña actualizada correctamente' }
+  return { message: "Contraseña actualizada correctamente" };
 }
 
 // Ver seguidores
 async function getFollowers({ userId }) {
-  const user = await User.findById(userId).populate(
-    'followers',
-    'username profileImage'
-  )
-  if (!user) throw new Error('Usuario no encontrado')
-  return user.followers
+  const followers = await prisma.follow.findMany({
+    where: { followeeId: userId },
+    select: {
+      follower: { select: { id: true, username: true, profileImage: true } },
+    },
+  });
+  return followers.map((f) => f.follower);
 }
 
 // Ver seguidos
 async function getFollowing({ userId }) {
-  const user = await User.findById(userId).populate(
-    'following',
-    'username profileImage'
-  )
-  if (!user) throw new Error('Usuario no encontrado')
-  return user.following
+  const following = await prisma.follow.findMany({
+    where: { followerId: userId },
+    select: {
+      followee: { select: { id: true, username: true, profileImage: true } },
+    },
+  });
+  return following.map((f) => f.followee);
 }
 
 // Seguir usuario
 async function followUser({ currentUserId, targetUserId }) {
   if (currentUserId === targetUserId) {
-    throw new Error('No puedes seguirte a ti mismo')
+    throw new Error("No puedes seguirte a ti mismo");
   }
 
-  const [currentUser, targetUser] = await Promise.all([
-    User.findById(currentUserId),
-    User.findById(targetUserId)
-  ])
+  const targetUser = await prisma.user.findUnique({
+    where: { id: targetUserId },
+  });
+  if (!targetUser) throw new Error("Usuario no encontrado");
 
-  if (!targetUser) throw new Error('Usuario no encontrado')
-  if (currentUser.following.includes(targetUserId)) {
-    throw new Error('Ya sigues a este usuario')
+  const existing = await prisma.follow.findUnique({
+    where: {
+      followerId_followeeId: {
+        followerId: currentUserId,
+        followeeId: targetUserId,
+      },
+    },
+  });
+
+  if (existing) {
+    throw new Error("Ya sigues a este usuario");
   }
 
-  currentUser.following.push(targetUserId)
-  targetUser.followers.push(currentUserId)
-
-  await Promise.all([currentUser.save(), targetUser.save()])
-
-  return { success: true, message: 'Usuario seguido correctamente' }
+  await prisma.follow.create({
+    data: { followerId: currentUserId, followeeId: targetUserId },
+  });
+  return { success: true, message: "Usuario seguido correctamente" };
 }
 
 // Dejar de seguir
 async function unfollowUser({ currentUserId, targetUserId }) {
   if (currentUserId === targetUserId) {
-    throw new Error('No puedes dejar de seguirte a ti mismo')
+    throw new Error("No puedes dejar de seguirte a ti mismo");
   }
 
-  const [currentUser, targetUser] = await Promise.all([
-    User.findById(currentUserId),
-    User.findById(targetUserId)
-  ])
-
-  if (!targetUser) throw new Error('Usuario no encontrado')
-  if (!currentUser.following.includes(targetUserId)) {
-    throw new Error('No sigues a este usuario')
-  }
-
-  currentUser.following = currentUser.following.filter(
-    (id) => id.toString() !== targetUserId.toString()
-  )
-  targetUser.followers = targetUser.followers.filter(
-    (id) => id.toString() !== currentUserId.toString()
-  )
-
-  await Promise.all([currentUser.save(), targetUser.save()])
+  await prisma.follow.deleteMany({
+    where: { followerId: currentUserId, followeeId: targetUserId },
+  });
 
   return {
     success: true,
-    message: 'Dejaste de seguir al usuario correctamente'
-  }
+    message: "Dejaste de seguir al usuario correctamente",
+  };
 }
 
 // Bloquear usuario
 async function blockUser({ currentUserId, targetUserId }) {
   if (currentUserId === targetUserId) {
-    throw new Error('No puedes bloquearte a ti mismo')
+    throw new Error("No puedes bloquearte a ti mismo");
   }
 
-  const [currentUser, targetUser] = await Promise.all([
-    User.findById(currentUserId),
-    User.findById(targetUserId)
-  ])
+  const existing = await prisma.block.findUnique({
+    where: {
+      blockerId_blockedId: {
+        blockerId: currentUserId,
+        blockedId: targetUserId,
+      },
+    },
+  });
 
-  if (!targetUser) throw new Error('Usuario no encontrado')
-  if (currentUser.blockedUsers.includes(targetUserId)) {
-    throw new Error('Ya has bloqueado a este usuario')
+  if (existing) {
+    throw new Error("Ya has bloqueado a este usuario");
   }
 
-  currentUser.blockedUsers.push(targetUserId)
-  await currentUser.save()
-
-  return { success: true, message: 'Usuario bloqueado correctamente' }
+  await prisma.block.create({
+    data: { blockerId: currentUserId, blockedId: targetUserId },
+  });
+  return { success: true, message: "Usuario bloqueado correctamente" };
 }
 
 // Desbloquear usuario
 async function unblockUser({ currentUserId, targetUserId }) {
   if (currentUserId === targetUserId) {
-    throw new Error('No puedes desbloquearte a ti mismo')
+    throw new Error("No puedes desbloquearte a ti mismo");
   }
 
-  const [currentUser, targetUser] = await Promise.all([
-    User.findById(currentUserId),
-    User.findById(targetUserId)
-  ])
+  await prisma.block.deleteMany({
+    where: { blockerId: currentUserId, blockedId: targetUserId },
+  });
 
-  if (!targetUser) throw new Error('Usuario no encontrado')
-  if (!currentUser.blockedUsers.includes(targetUserId)) {
-    throw new Error('No has bloqueado a este usuario')
-  }
-
-  currentUser.blockedUsers = currentUser.blockedUsers.filter(
-    (id) => id.toString() !== targetUserId.toString()
-  )
-  await currentUser.save()
-
-  return { success: true, message: 'Usuario desbloqueado correctamente' }
+  return { success: true, message: "Usuario desbloqueado correctamente" };
 }
 
 // Obtener bloqueados
 async function getBlockedUsers({ userId }) {
-  const user = await User.findById(userId).populate(
-    'blockedUsers',
-    'username email'
-  )
-  if (!user) throw new Error('Usuario no encontrado')
-  return user.blockedUsers
+  const blocks = await prisma.block.findMany({
+    where: { blockerId: userId },
+    select: { blocked: { select: { id: true, username: true, email: true } } },
+  });
+  return blocks.map((bl) => bl.blocked);
 }
 
 // ADMIN
 async function getAllUsers({ includeDeleted = false } = {}) {
-  const query = User.find().select('-password')
-  if (!includeDeleted) {
-    query.where({ isDeleted: false })
-  }
-  return await query
+  const where = includeDeleted ? {} : { isDeleted: false };
+  const users = await prisma.user.findMany({
+    where,
+    select: {
+      password: false,
+      id: true,
+      fullName: true,
+      username: true,
+      email: true,
+      profileImage: true,
+      role: true,
+      bio: true,
+      subscriptionType: true,
+      subscriptionEndDate: true,
+      coins: true,
+      isDeleted: true,
+      deletedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  return users;
 }
 
 async function deleteUser({ userId, hardDelete = false }) {
   if (hardDelete) {
-    const user = await User.findByIdAndDelete(userId)
-    if (!user) throw new Error('Usuario no encontrado')
-    return { message: 'Usuario eliminado permanentemente' }
+    await prisma.user.delete({ where: { id: userId } });
+    return { message: "Usuario eliminado permanentemente" };
   }
 
-  const user = await User.findByIdAndUpdate(
-    userId,
-    { isDeleted: true, deletedAt: new Date() },
-    { new: true }
-  ).select('-password')
+  await prisma.user.update({
+    where: { id: userId },
+    data: { isDeleted: true, deletedAt: new Date() },
+  });
 
-  if (!user) throw new Error('Usuario no encontrado')
-  return { message: 'Usuario desactivado (soft delete) correctamente' }
+  return { message: "Usuario desactivado (soft delete) correctamente" };
 }
 
 async function updateUserRole({ userId, role }) {
-  if (!['user', 'admin'].includes(role)) {
-    throw new Error('Rol inválido')
+  if (!["user", "admin"].includes(role)) {
+    throw new Error("Rol inválido");
   }
 
-  const user = await User.findByIdAndUpdate(
-    userId,
-    { role },
-    { new: true, runValidators: true }
-  ).select('-password')
+  const updatedUser = await prisma.user.update({
+    where: { id: userId },
+    data: { role },
+    select: {
+      password: false,
+      id: true,
+      fullName: true,
+      username: true,
+      email: true,
+      profileImage: true,
+      role: true,
+      bio: true,
+      subscriptionType: true,
+      subscriptionEndDate: true,
+      coins: true,
+      isDeleted: true,
+      deletedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
 
-  if (!user) throw new Error('Usuario no encontrado')
-  return user
+  return updatedUser;
 }
 
 module.exports = {
@@ -309,5 +390,6 @@ module.exports = {
   getBlockedUsers,
   getAllUsers,
   deleteUser,
-  updateUserRole
-}
+  updateUserRole,
+  findOrCreateOAuthUser,
+};

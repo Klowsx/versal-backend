@@ -22,10 +22,7 @@ enum SubscriptionStatus {
   EXPIRED
 }
 
-enum InteractionType {
-  LIKE
-  COMMENT
-}
+
 
 enum StoryStatus {
   DRAFT
@@ -94,6 +91,8 @@ model User {
   subscriptionType    SubscriptionType   @default(BASIC)
   subscriptionEndDate DateTime?
   coins               Int                @default(0)
+  oauthProvider       String?
+  oauthId             String?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   stories             Story[]
@@ -104,18 +103,43 @@ model User {
   donationsReceived   Donation[]         @relation("DonationsReceived")
   comments            Comment[]
   commentLikes        CommentLike[]
-  storyLikes          StoryLike[]
+  chapterLikes        ChapterLike[]
+  ratings             Rating[]
   notifications       Notification[]
   notificationPreferences NotificationPreference[]
+  views               View[]
+  bookmarks           Bookmark[]
+  favorites           Favorite[]
+  reports             Report[]
+  blockings          Block[]          @relation("Blocker")
+  blockedBy          Block[]          @relation("Blocked")
+  passwordResets     PasswordReset[]
+
+  @@unique([oauthProvider, oauthId])
 }
 
-model StoryLike {
+model ChapterLike {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  chapter   Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  chapterId String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, chapterId])
+  @@index([userId])
+  @@index([chapterId])
+}
+
+model Rating {
   id        String   @id @default(uuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
   story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
   storyId   String
+  score     Int      // 1-5 estrellas
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, storyId])
   @@index([userId])
@@ -150,15 +174,17 @@ model Story {
   isAdultContent Boolean    @default(false)
   isDeleted     Boolean    @default(false)
   deletedAt     DateTime?
-  totalLikes    Int         @default(0)
+  avgRating     Float       @default(0)
+  ratingCount   Int         @default(0)
   viewCount     Int         @default(0)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   chapters      Chapter[]
   favorites     Favorite[]
-  likes         StoryLike[]
+  ratings       Rating[]
   bookmarks     Bookmark[]
   views         View[]
+  donations     Donation[]
 
   @@index([authorId])
   @@index([categoryId])
@@ -183,7 +209,9 @@ model Chapter {
   medias        ChapterMedia[]
   comments      Comment[]
   views         View[]
-  commentCount Int @default(0)
+  likes         ChapterLike[]
+  likeCount     Int      @default(0)
+  commentCount  Int      @default(0)
   @@unique([storyId, chapterNumber])
   
   @@index([storyId])
@@ -225,18 +253,7 @@ model StoryTag {
   @@index([tagId])
 }
 
-model Interaction {
-  id             String   @id @default(uuid())
-  chapterId      String
-  chapter        Chapter  @relation(fields: [chapterId], references: [id])
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  interactionType InteractionType
-  text           String?
-  createdAt      DateTime @default(now())
-  @@index([chapterId])
-  @@index([userId])
-}
+
 
 model Comment {
   id          String   @id @default(uuid())
@@ -412,4 +429,30 @@ model Donation {
   @@index([donatorId])
   @@index([recipientId])
   @@index([storyId])
+}
+
+model PasswordReset {
+  id         String   @id @default(uuid())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Block {
+  id         String   @id @default(uuid())
+  blocker    User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockerId  String
+  blocked    User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  blockedId  String
+  createdAt  DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
 }

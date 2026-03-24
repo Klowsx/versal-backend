@@ -1,107 +1,210 @@
-const authService = require('./auth.service')
+const authService = require("./auth.service");
+const userService = require("../users/user.service");
 
-const REFRESH_TOKEN_COOKIE_NAME = 'refreshToken'
+const REFRESH_TOKEN_COOKIE_NAME = "refreshToken";
 
 async function register(request, reply) {
-  const { email, password, username, fullName } = request.body
+  const { email, password, username, fullName } = request.body;
 
   const result = await authService.registerUser({
     email,
     password,
     username,
-    fullName
-  })
+    fullName,
+  });
   if (result.error) {
-    return reply.code(400).send({ error: result.error })
+    return reply.code(400).send({ error: result.error });
   }
 
-  const user = result.user
-  const payload = { userId: user._id, role: user.role }
+  const user = result.user;
+  const payload = { userId: user.id, role: user.role };
 
-  const accessToken = request.jwtSign(payload, { expiresIn: '15m' })
-  const refreshToken = request.jwtSign(payload, { expiresIn: '30d' })
+  const accessToken = request.jwtSign(payload, { expiresIn: "15m" });
+  const refreshToken = request.jwtSign(payload, { expiresIn: "30d" });
 
   reply
     .setCookie(REFRESH_TOKEN_COOKIE_NAME, refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 30 * 24 * 60 * 60
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 30 * 24 * 60 * 60,
     })
     .code(201)
-    .send({ user, accessToken })
+    .send({ user, accessToken });
 }
 
 async function login(request, reply) {
-  const { email, password } = request.body
+  const { email, password } = request.body;
 
-  const result = await authService.loginUser({ email, password })
+  const result = await authService.loginUser({ email, password });
   if (result.error) {
-    return reply.code(401).send({ error: result.error })
+    return reply.code(401).send({ error: result.error });
   }
 
-  const user = result.user
-  const payload = { userId: user._id, role: user.role }
+  const user = result.user;
+  const payload = { userId: user.id, role: user.role };
 
-  const accessToken = request.jwtSign(payload, { expiresIn: '15m' })
-  const refreshToken = request.jwtSign(payload, { expiresIn: '30d' })
+  const accessToken = request.jwtSign(payload, { expiresIn: "15m" });
+  const refreshToken = request.jwtSign(payload, { expiresIn: "30d" });
 
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   await authService.saveRefreshToken({
     token: refreshToken,
-    userId: user._id,
-    userAgent: request.headers['user-agent'] || 'unknown',
-    expiresAt
-  })
+    userId: user.id,
+    userAgent: request.headers["user-agent"] || "unknown",
+    expiresAt,
+  });
 
   reply
     .setCookie(REFRESH_TOKEN_COOKIE_NAME, refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 30 * 24 * 60 * 60
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 30 * 24 * 60 * 60,
     })
-    .send({ user, accessToken })
+    .send({ user, accessToken });
+}
+
+async function oauthGoogleCallback(request, reply) {
+  try {
+    const tokenObject =
+      await request.server.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(
+        request,
+      );
+    const access_token = tokenObject.token.access_token;
+
+    const userInfoResp = await fetch(
+      "https://www.googleapis.com/oauth2/v3/userinfo",
+      {
+        headers: { Authorization: `Bearer ${access_token}` },
+      },
+    );
+    const profile = await userInfoResp.json();
+
+    if (!profile.email) {
+      return reply.code(400).send({ error: "No se obtuvo email de Google" });
+    }
+
+    const existingOrNew = await authService.findOrCreateOAuthUser({
+      email: profile.email,
+      fullName: profile.name,
+      profileImage: profile.picture,
+      provider: "google",
+      oauthId: profile.sub,
+    });
+
+    if (existingOrNew.error) {
+      return reply.code(400).send({ error: existingOrNew.error });
+    }
+
+    const user = existingOrNew.user;
+    const payload = { userId: user.id, role: user.role };
+
+    const accessToken = request.jwtSign(payload, { expiresIn: "15m" });
+    const refreshToken = request.jwtSign(payload, { expiresIn: "30d" });
+
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await authService.saveRefreshToken({
+      token: refreshToken,
+      userId: user.id,
+      userAgent: request.headers["user-agent"] || "unknown",
+      expiresAt,
+    });
+
+    reply
+      .setCookie(REFRESH_TOKEN_COOKIE_NAME, refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 30 * 24 * 60 * 60,
+      })
+      .send({ user, accessToken });
+  } catch (err) {
+    console.error("OAuth callback error:", err);
+    return reply.code(500).send({ error: "OAuth login falló" });
+  }
 }
 
 async function refreshToken(request, reply) {
-  const refreshToken = request.cookies[REFRESH_TOKEN_COOKIE_NAME]
+  const refreshToken = request.cookies[REFRESH_TOKEN_COOKIE_NAME];
   if (!refreshToken) {
-    return reply.code(401).send({ error: 'No refresh token provided.' })
+    return reply.code(401).send({ error: "No refresh token provided." });
   }
 
-  const verification = await authService.verifyRefreshToken(refreshToken)
+  const verification = await authService.verifyRefreshToken(refreshToken);
   if (verification.error) {
-    return reply.code(401).send({ error: verification.error })
+    return reply.code(401).send({ error: verification.error });
   }
 
   try {
-    const decoded = await request.jwtVerify({ token: refreshToken })
-    const payload = { userId: decoded.userId, role: decoded.role }
-    const accessToken = request.jwtSign(payload, { expiresIn: '15m' })
+    const decoded = await request.jwtVerify({ token: refreshToken });
+    const payload = { userId: decoded.userId, role: decoded.role };
+    const accessToken = request.jwtSign(payload, { expiresIn: "15m" });
 
-    return reply.send({ accessToken })
+    return reply.send({ accessToken });
   } catch (err) {
-    return reply.code(401).send({ error: 'Refresh token inválido.' })
+    return reply.code(401).send({ error: "Refresh token inválido." });
   }
 }
 
 async function logout(request, reply) {
-  const refreshToken = request.cookies[REFRESH_TOKEN_COOKIE_NAME]
+  const refreshToken = request.cookies[REFRESH_TOKEN_COOKIE_NAME];
   if (refreshToken) {
-    await authService.revokeRefreshToken(refreshToken)
+    await authService.revokeRefreshToken(refreshToken);
   }
 
   reply
-    .clearCookie(REFRESH_TOKEN_COOKIE_NAME, { path: '/' })
-    .send({ message: 'Logged out' })
+    .clearCookie(REFRESH_TOKEN_COOKIE_NAME, { path: "/" })
+    .send({ message: "Logged out" });
+}
+
+async function me(request, reply) {
+  const userId = request.user && request.user.userId;
+  if (!userId) {
+    return reply.code(401).send({ error: "Unauthorized" });
+  }
+
+  try {
+    const user = await userService.getUserById({ userId });
+    return reply.send({ user });
+  } catch (err) {
+    return reply.code(404).send({ error: "Usuario no encontrado" });
+  }
+}
+
+async function forgotPassword(request, reply) {
+  const { email } = request.body;
+
+  const result = await authService.requestPasswordReset({ email });
+  if (result.error) {
+    return reply.code(400).send({ error: result.error });
+  }
+
+  // TODO
+  // en producción no devolver token en respuesta
+  return reply.code(200).send({ message: result.message });
+}
+
+async function resetPassword(request, reply) {
+  const { email, token, newPassword } = request.body;
+
+  const result = await authService.resetPassword({ email, token, newPassword });
+  if (result.error) {
+    return reply.code(400).send({ error: result.error });
+  }
+
+  return reply.code(200).send({ message: result.message });
 }
 
 module.exports = {
   register,
   login,
   refreshToken,
-  logout
-}
+  logout,
+  me,
+  forgotPassword,
+  resetPassword,
+};
