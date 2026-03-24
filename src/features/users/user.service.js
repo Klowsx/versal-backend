@@ -43,6 +43,60 @@ async function registerUser({ email, password, username, fullName }) {
   return { user: userSafe };
 }
 
+async function findOrCreateOAuthUser({
+  email,
+  fullName,
+  profileImage,
+  provider,
+  oauthId,
+}) {
+  let user = await prisma.user.findUnique({ where: { email } });
+  if (user) {
+    if (user.isDeleted) {
+      return { error: "La cuenta está eliminada." };
+    }
+    // Si el usuario ya existe con correo, no forzamos provider, pero guardamos ID si falta
+    if (!user.oauthProvider || user.oauthProvider !== provider) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          oauthProvider: provider,
+          oauthId,
+          profileImage: profileImage || user.profileImage,
+          fullName: fullName || user.fullName,
+        },
+      });
+    }
+    const { password: _password2, ...safe } = user;
+    return { user: safe };
+  }
+
+  const usernameBase = email.split("@")[0];
+  let uniqueUsername = usernameBase;
+  let i = 1;
+  while (
+    await prisma.user.findUnique({ where: { username: uniqueUsername } })
+  ) {
+    uniqueUsername = `${usernameBase}${i++}`;
+  }
+
+  user = await prisma.user.create({
+    data: {
+      email,
+      username: uniqueUsername,
+      fullName: fullName || "",
+      profileImage: profileImage || null,
+      password: "",
+      oauthProvider: provider,
+      oauthId,
+      isDeleted: false,
+    },
+  });
+
+  const { password: _password3, ...userSafe } = user;
+  return { user: userSafe };
+}
+
 // Login de usuario
 async function loginUser({ email, password }) {
   try {
@@ -337,4 +391,5 @@ module.exports = {
   getAllUsers,
   deleteUser,
   updateUserRole,
+  findOrCreateOAuthUser,
 };

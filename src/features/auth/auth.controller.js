@@ -67,6 +67,67 @@ async function login(request, reply) {
     .send({ user, accessToken });
 }
 
+async function oauthGoogleCallback(request, reply) {
+  try {
+    const tokenObject =
+      await request.server.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(
+        request,
+      );
+    const access_token = tokenObject.token.access_token;
+
+    const userInfoResp = await fetch(
+      "https://www.googleapis.com/oauth2/v3/userinfo",
+      {
+        headers: { Authorization: `Bearer ${access_token}` },
+      },
+    );
+    const profile = await userInfoResp.json();
+
+    if (!profile.email) {
+      return reply.code(400).send({ error: "No se obtuvo email de Google" });
+    }
+
+    const existingOrNew = await authService.findOrCreateOAuthUser({
+      email: profile.email,
+      fullName: profile.name,
+      profileImage: profile.picture,
+      provider: "google",
+      oauthId: profile.sub,
+    });
+
+    if (existingOrNew.error) {
+      return reply.code(400).send({ error: existingOrNew.error });
+    }
+
+    const user = existingOrNew.user;
+    const payload = { userId: user.id, role: user.role };
+
+    const accessToken = request.jwtSign(payload, { expiresIn: "15m" });
+    const refreshToken = request.jwtSign(payload, { expiresIn: "30d" });
+
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await authService.saveRefreshToken({
+      token: refreshToken,
+      userId: user.id,
+      userAgent: request.headers["user-agent"] || "unknown",
+      expiresAt,
+    });
+
+    reply
+      .setCookie(REFRESH_TOKEN_COOKIE_NAME, refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 30 * 24 * 60 * 60,
+      })
+      .send({ user, accessToken });
+  } catch (err) {
+    console.error("OAuth callback error:", err);
+    return reply.code(500).send({ error: "OAuth login falló" });
+  }
+}
+
 async function refreshToken(request, reply) {
   const refreshToken = request.cookies[REFRESH_TOKEN_COOKIE_NAME];
   if (!refreshToken) {

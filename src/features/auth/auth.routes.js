@@ -34,6 +34,11 @@ async function authRoutes(fastify) {
   fastify.post("/auth/logout", { schema: logoutSchema }, authController.logout);
 
   fastify.get(
+    "/auth/oauth/google/callback",
+    authController.oauthGoogleCallback,
+  );
+
+  fastify.get(
     "/auth/me",
     {
       schema: meSchema,

@@ -46,7 +46,27 @@ async function loginUser({ email, password }) {
 
   return { user: result.user };
 }
+async function findOrCreateOAuthUser({
+  email,
+  fullName,
+  profileImage,
+  provider,
+  oauthId,
+}) {
+  const result = await userService.findOrCreateOAuthUser({
+    email,
+    fullName,
+    profileImage,
+    provider,
+    oauthId,
+  });
 
+  if (result.error) {
+    return { error: result.error };
+  }
+
+  return { user: result.user };
+}
 // Genera hash de refresh token para almacenamiento seguro.
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");

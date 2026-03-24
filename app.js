@@ -35,6 +35,26 @@ if (!jwtSecret) {
 fastify.register(jwt, { secret: jwtSecret })
 fastify.register(authPlugin)
 
+// Google OAuth2 
+fastify.register(require('@fastify/oauth2'), {
+  name: 'googleOAuth2',
+  scope: ['openid', 'email', 'profile'],
+  credentials: {
+    client: {
+      id: process.env.GOOGLE_CLIENT_ID,
+      secret: process.env.GOOGLE_CLIENT_SECRET
+    },
+    auth: {
+      authorizeHost: 'https://accounts.google.com',
+      authorizePath: '/o/oauth2/v2/auth',
+      tokenHost: 'https://oauth2.googleapis.com',
+      tokenPath: '/token'
+    }
+  },
+  // Ruta para iniciar OAuth
+  startRedirectPath: '/api/auth/oauth/google',
+})
+
 fastify.register(fastifyCookie)
 
 fastify.register(fastifyMultipart)

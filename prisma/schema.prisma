@@ -91,6 +91,8 @@ model User {
   subscriptionType    SubscriptionType   @default(BASIC)
   subscriptionEndDate DateTime?
   coins               Int                @default(0)
+  oauthProvider       String?
+  oauthId             String?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   stories             Story[]
@@ -112,6 +114,8 @@ model User {
   blockings          Block[]          @relation("Blocker")
   blockedBy          Block[]          @relation("Blocked")
   passwordResets     PasswordReset[]
+
+  @@unique([oauthProvider, oauthId])
 }
 
 model ChapterLike {
