@@ -15,7 +15,7 @@ const FavoriteSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 FavoriteSchema.index({ userId: 1, storyId: 1 }, { unique: true });

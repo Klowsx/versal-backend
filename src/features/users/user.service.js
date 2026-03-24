@@ -18,10 +18,25 @@ async function registerUser({ email, password, username, fullName }) {
   }
 
   const existing = await User.findOne({ email })
-  if (existing) return { error: 'El email ya esta en uso' }
+  if (existing) {
+    if (existing.isDeleted) {
+      return {
+        error:
+          'El email ya estaba asociado a una cuenta eliminada. Ponte en contacto con soporte si quieres recuperarla.'
+      }
+    }
+    return { error: 'El email ya está en uso' }
+  }
 
   const hash = await bcrypt.hash(password, 10)
-  const user = await User.create({ email, password: hash, username, fullName })
+  const user = await User.create({
+    email,
+    password: hash,
+    username,
+    fullName,
+    isDeleted: false,
+    deletedAt: null
+  })
 
   return { user }
 }
@@ -30,7 +45,7 @@ async function registerUser({ email, password, username, fullName }) {
 async function loginUser({ email, password }) {
   try {
     const user = await User.findOne({ email })
-    if (!user) {
+    if (!user || user.isDeleted) {
       return { error: 'Credenciales inválidas.' }
     }
 
@@ -50,21 +65,32 @@ async function loginUser({ email, password }) {
 }
 
 // Obtener perfil
-async function getUserById({ userId }) {
-  const user = await User.findById(userId)
+async function getUserById({ userId, includeDeleted = false }) {
+  const query = User.findById(userId)
     .select('-password')
     .select(
-      'fullName username email profileImage role bio subscription following followers blockedUsers coins'
+      'fullName username email profileImage role bio subscription following followers blockedUsers coins isDeleted deletedAt'
     )
     .lean()
+
+  if (!includeDeleted) {
+    query.where({ isDeleted: false })
+  }
+
+  const user = await query
+
   if (!user) throw new Error('Usuario no encontrado')
   console.log('Usuario encontrado:', user)
   return user
 }
 
 // Obtener usuario por email
-async function getUserByEmail(email) {
-  return await User.findOne({ email })
+async function getUserByEmail(email, includeDeleted = false) {
+  const query = User.findOne({ email })
+  if (!includeDeleted) {
+    query.where({ isDeleted: false })
+  }
+  return await query
 }
 
 // Editar perfil
@@ -227,14 +253,29 @@ async function getBlockedUsers({ userId }) {
 }
 
 // ADMIN
-async function getAllUsers() {
-  return await User.find().select('-password')
+async function getAllUsers({ includeDeleted = false } = {}) {
+  const query = User.find().select('-password')
+  if (!includeDeleted) {
+    query.where({ isDeleted: false })
+  }
+  return await query
 }
 
-async function deleteUser({ userId }) {
-  const user = await User.findByIdAndDelete(userId)
+async function deleteUser({ userId, hardDelete = false }) {
+  if (hardDelete) {
+    const user = await User.findByIdAndDelete(userId)
+    if (!user) throw new Error('Usuario no encontrado')
+    return { message: 'Usuario eliminado permanentemente' }
+  }
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { isDeleted: true, deletedAt: new Date() },
+    { new: true }
+  ).select('-password')
+
   if (!user) throw new Error('Usuario no encontrado')
-  return { message: 'Usuario eliminado correctamente' }
+  return { message: 'Usuario desactivado (soft delete) correctamente' }
 }
 
 async function updateUserRole({ userId, role }) {
